@@ -1,0 +1,31 @@
+# Secrets & Credentials
+.env
+*.env
+
+# Python Cache & Virtual Environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+openbb_env/
+openbb_venv/
+.aqt-venv/
+
+# Heavy Unused External Repos & Assets
+FinceptTerminal/
+OpenBB/
+machine-learning-for-trading/
+.obsidian/
+*.html
+
+# Trading Logs & Paper Ledger (Local State)
+logs/
+paper_ledger.json
+backtest_results.json
+leaderboard.json
+
+# System & OS Files
+.DS_Store
+*.log

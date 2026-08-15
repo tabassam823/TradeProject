@@ -1,0 +1,22 @@
+{
+  "EXECUTION_MODE": "PAPER_TRADING",
+  "TRADING_PAIRS": [
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "BNB/USDT",
+    "AVAX/USDT"
+  ],
+  "TIMEFRAME": "1h",
+  "INITIAL_CAPITAL": 10000.0,
+  "BINANCE_SANDBOX": true,
+  "RISK_LIMITS": {
+    "max_risk_per_trade": 0.02,
+    "max_portfolio_drawdown": 0.15,
+    "max_open_positions": 5
+  },
+  "OPENBB": {
+    "ENABLE_SENTIMENT": true,
+    "CRITICAL_SENTIMENT_THRESHOLD": -0.6
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "strategies": {
+    "momentum_multi_horizon": {
+      "enabled": true,
+      "name": "Multi-Horizon Time Series Momentum (HedgeFund.md)",
+      "horizons": [5, 10, 21, 42],
+      "risk_budget": 0.01,
+      "volatility_lookback": 21
+    },
+    "vwap_mean_reversion": {
+      "enabled": true,
+      "name": "VWAP Value Area Rejection (strategy.md)",
+      "vwap_window": 24,
+      "num_std": 2.0,
+      "risk_budget": 0.01,
+      "risk_reward_ratio": 2.0
+    },
+    "sentiment_filtered_trend": {
+      "enabled": true,
+      "name": "OpenBB Sentiment-Filtered Trend",
+      "trend_fast": 10,
+      "trend_slow": 30,
+      "risk_budget": 0.01,
+      "min_sentiment_score": -0.2
+    }
+  }
+}
