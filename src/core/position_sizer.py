@@ -51,7 +51,8 @@ class VolatilityTargetPositionSizer:
         b_min = (1.0 - w) / w
         target_payoff = max(b_min * min_payoff_margin, 1.5)
 
-        sl_pct = max(volatility * 1.5, 0.008)  # Min 0.8% SL distance
+        # Stop loss distance: minimum 1.0% (0.010) of asset price to absorb small-cap noise
+        sl_pct = max(volatility * 1.5, 0.010)
         tp_pct = sl_pct * target_payoff
 
         if direction > 0:
