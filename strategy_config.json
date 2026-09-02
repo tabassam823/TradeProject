@@ -1,9 +1,24 @@
 {
+  "benchmark": {
+    "market_symbol": "BTC/USDT",
+    "macro_factors": [
+      "DXY",
+      "GOLD",
+      "VIX",
+      "CRYPTO_FEAR_GREED"
+    ],
+    "regime_detection_enabled": true
+  },
   "strategies": {
     "momentum_multi_horizon": {
-      "enabled": true,
+      "enabled": false,
       "name": "Multi-Horizon Time Series Momentum (HedgeFund.md)",
-      "horizons": [5, 10, 21, 42],
+      "horizons": [
+        5,
+        10,
+        21,
+        42
+      ],
       "risk_budget": 0.01,
       "volatility_lookback": 21
     },
@@ -16,12 +31,37 @@
       "risk_reward_ratio": 2.0
     },
     "sentiment_filtered_trend": {
-      "enabled": true,
+      "enabled": false,
       "name": "OpenBB Sentiment-Filtered Trend",
       "trend_fast": 10,
       "trend_slow": 30,
       "risk_budget": 0.01,
       "min_sentiment_score": -0.2
+    },
+    "factor_regime_adaptive": {
+      "enabled": false,
+      "name": "Factor-Regime Adaptive (Tahap A-B)",
+      "fast_lookback": 12,
+      "slow_lookback": 36,
+      "min_alpha_threshold": 0.0005,
+      "risk_budget": 0.015
+    },
+    "first_passage_value": {
+      "enabled": true,
+      "name": "First-Passage Probability & Asymmetric TP/SL (Tahap C-D & AD)",
+      "vwap_window": 24,
+      "entry_num_std": 1.8,
+      "reward_risk_ratio": 2.5,
+      "estimated_win_rate": 0.42,
+      "risk_budget": 0.015
+    },
+    "qubo_portfolio_selector": {
+      "enabled": false,
+      "name": "Combinatorial QUBO Quadratic Sizer (Tahap G, N, Z & AG)",
+      "lookback_window": 24,
+      "risk_penalty_lambda": 0.5,
+      "max_assets": 3,
+      "risk_budget": 0.02
     }
   }
 }

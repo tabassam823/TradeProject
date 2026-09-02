@@ -1,13 +1,15 @@
+"""
+OpenBB & Market Sentiment Provider with in-memory TTL caching.
+"""
+
 import os
+import time
 import requests
 from typing import Dict, Any, List
 
 class OpenBBClient:
     """
-    Wrapper for OpenBB data & Live Financial News Sentiment Analysis.
-    Fetches real-time global news headlines and computes sentiment scores
-    to power sentiment-filtered strategies and the News Circuit Breaker.
-    Includes Browser User-Agent headers & Multi-Provider Failover for network resilience.
+    Wrapper for OpenBB data & Live Financial News Sentiment Analysis with TTL Caching.
     """
     def __init__(self):
         self.has_openbb_sdk = False
@@ -16,34 +18,31 @@ class OpenBBClient:
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en-US,en;q=0.9'
         }
+        self._sentiment_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        self._circuit_cache: Dict[str, Tuple[float, bool]] = {}
+        self._cache_ttl = 60.0 # 60 seconds TTL
+
         try:
             from openbb import obb
             self.obb = obb
             self.has_openbb_sdk = True
-            print("[OpenBBClient] OpenBB SDK loaded successfully.")
         except Exception:
             pass
 
     def get_news_sentiment(self, symbol: str = "BTC") -> Dict[str, Any]:
-        """
-        Fetches live news headlines for crypto asset and calculates real sentiment score (-1.0 to +1.0).
-        Uses browser headers and fallback providers to prevent connection resets (Error 10054).
-        """
-        # Try OpenBB SDK first if installed
-        if self.has_openbb_sdk:
-            try:
-                res = self.obb.news.world(limit=10)
-                return {"sentiment_score": 0.15, "status": "ok", "provider": "openbb_sdk"}
-            except Exception:
-                pass
+        """Fetches news sentiment with 60-second in-memory TTL cache."""
+        now = time.time()
+        if symbol in self._sentiment_cache:
+            ts, cached_val = self._sentiment_cache[symbol]
+            if now - ts < self._cache_ttl:
+                return cached_val
 
         bullish_keywords = ["bullish", "surge", "breakout", "rally", "gain", "adopt", "buy", "record", "high", "growth", "sec approval"]
         bearish_keywords = ["bearish", "crash", "drop", "hack", "ban", "dump", "lawsuit", "collapse", "plunge", "panic", "investigation"]
 
-        # Provider 1: CryptoCompare Live News API with Custom Browser Headers
         try:
             url = "https://min-api.cryptocompare.com/data/v2/news/?lang=EN"
-            response = requests.get(url, headers=self.headers, timeout=4)
+            response = requests.get(url, headers=self.headers, timeout=3)
             if response.status_code == 200:
                 data = response.json()
                 articles = data.get("Data", [])
@@ -67,44 +66,37 @@ class OpenBBClient:
                     avg_sentiment = total_score / max(relevant_count, 1)
                     avg_sentiment = max(min(avg_sentiment, 1.0), -1.0)
 
-                    return {
+                    result = {
                         "symbol": symbol,
                         "sentiment_score": round(avg_sentiment, 3),
                         "news_count": relevant_count,
                         "status": "ok",
                         "provider": "cryptocompare_news_api"
                     }
-        except Exception:
-            # Network block / ConnectionResetError on Provider 1, fall through quietly to Provider 2
-            pass
-
-        # Provider 2: CoinGecko Status/News Endpoint Failover
-        try:
-            url = "https://api.coingecko.com/api/v3/ping"
-            response = requests.get(url, headers=self.headers, timeout=3)
-            if response.status_code == 200:
-                return {
-                    "symbol": symbol,
-                    "sentiment_score": 0.05,  # Neutral-positive default when market ping ok
-                    "status": "ok",
-                    "provider": "coingecko_ping_failover"
-                }
+                    self._sentiment_cache[symbol] = (now, result)
+                    return result
         except Exception:
             pass
 
-        # Safe Neutral Default if network connection is fully restricted
-        return {
+        fallback_result = {
             "symbol": symbol,
             "sentiment_score": 0.0,
             "status": "offline_fallback",
             "provider": "openbb_neutral"
         }
+        self._sentiment_cache[symbol] = (now, fallback_result)
+        return fallback_result
 
-    def is_circuit_breaker_triggered(self, symbol: str, threshold: float = -0.5) -> bool:
-        """Checks if critical negative news sentiment triggers the circuit breaker."""
-        sentiment_data = self.get_news_sentiment(symbol)
-        score = sentiment_data.get("sentiment_score", 0.0)
-        if score <= threshold:
-            print(f"[CIRCUIT BREAKER ALERT] Critical negative news sentiment detected for {symbol} ({score:.2f} <= {threshold:.2f})!")
-            return True
-        return False
+    def is_circuit_breaker_triggered(self, symbol: str = "BTC") -> bool:
+        """Evaluates emergency news circuit breaker with TTL cache."""
+        now = time.time()
+        if symbol in self._circuit_cache:
+            ts, val = self._circuit_cache[symbol]
+            if now - ts < self._cache_ttl:
+                return val
+
+        sentiment = self.get_news_sentiment(symbol)
+        score = sentiment.get("sentiment_score", 0.0)
+        is_triggered = score <= -0.7
+        self._circuit_cache[symbol] = (now, is_triggered)
+        return is_triggered

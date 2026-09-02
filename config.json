@@ -8,7 +8,7 @@
     "AVAX/USDT"
   ],
   "TIMEFRAME": "1h",
-  "INITIAL_CAPITAL": 10000.0,
+  "INITIAL_CAPITAL": 20.0,
   "BINANCE_SANDBOX": true,
   "RISK_LIMITS": {
     "max_risk_per_trade": 0.02,

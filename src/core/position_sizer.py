@@ -1,21 +1,27 @@
+"""
+Advanced Risk & Position Sizing Engine.
+Implements Tahap C, D & Tahap N from ChatGPT/MD_Source + 23 Agustus 2026 Upgrades:
+- Strict Risk Constraint (R_max <= $1.00 or fractional budget).
+- Regime-Adaptive ATR SL/TP Scaling (expands SL distance in Crisis/Chop while reducing lot units N).
+- Exact Lot Units (N = Risk / |P_entry - P_SL|) and Leverage calculation.
+"""
+
 import numpy as np
 import pandas as pd
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 
 class VolatilityTargetPositionSizer:
     """
-    Advanced Risk & Position Sizing Engine supporting:
-    1. Payoff & Win Rate Expectancy (baseline.md break-even frontier).
-    2. Tiered Risk Budgeting ($1 fixed risk for capital < $100, 1% risk for capital >= $100).
-    3. Exact Lot & Leverage calculation so trade failure loses strictly target $1 / risk dollar.
-    4. Hourly BEP (Break-Even Point) and Dynamic Trailing Stop management.
+    Asset-Agnostic Position Sizing Engine.
+    Ensures mathematical expected value is maximized while keeping trade downside
+    strictly constrained to the risk budget ($1.00 or allocated percentage).
     """
     def __init__(self, max_risk_per_trade: float = 0.02, min_volatility: float = 0.005):
         self.max_risk_per_trade = max_risk_per_trade
         self.min_volatility = min_volatility
 
     def calculate_volatility(self, ohlcv_df: pd.DataFrame, window: int = 21) -> float:
-        """Calculates rolling standard deviation of percentage returns."""
+        """Calculates rolling volatility of returns."""
         if ohlcv_df is None or len(ohlcv_df) < window:
             return 0.02
         returns = ohlcv_df['close'].pct_change().dropna()
@@ -27,10 +33,10 @@ class VolatilityTargetPositionSizer:
     def calculate_tiered_risk_dollar(self, capital: float) -> float:
         """
         Tiered Risk Budgeting:
-        - Capital < $100: Risk fixed $1.00 per trade.
-        - Capital >= $100: Risk 1% of capital per trade.
+        - Capital <= $100: Risk fixed $1.00 per trade.
+        - Capital > $100: Risk 1% of capital per trade.
         """
-        if capital < 100.0:
+        if capital <= 100.0:
             return 1.00
         else:
             return capital * 0.01
@@ -40,60 +46,47 @@ class VolatilityTargetPositionSizer:
         entry_price: float,
         direction: int,
         volatility: float,
-        win_rate: float = 0.40,
-        min_payoff_margin: float = 1.2
+        rr_ratio: float = 2.5,
+        regime: Optional[str] = None
     ) -> Tuple[float, float, float]:
         """
-        Calculates Stop Loss and Take Profit levels based on Expected Value & Break-Even Frontier (baseline.md).
-        Break-even payoff ratio b_min = (1 - W) / W.
+        Calculates Stop Loss (1.0R) and Take Profit (rr_ratio * 1.0R) levels with Regime Adaptation.
+        In HIGH_VOLATILITY_CRISIS or MEAN_REVERSION_CHOP, scales SL distance up to 2.5x to prevent whipsaws.
         """
-        w = max(min(win_rate, 0.95), 0.05)
-        b_min = (1.0 - w) / w
-        target_payoff = max(b_min * min_payoff_margin, 1.5)
+        # Regime-adaptive scaling multiplier
+        if regime in ["HIGH_VOLATILITY_CRISIS", "MEAN_REVERSION_CHOP"]:
+            sl_multiplier = 2.8
+            min_sl_distance_pct = 0.025 # 2.5% minimum breathing room
+        else:
+            sl_multiplier = 1.5
+            min_sl_distance_pct = 0.010 # 1.0% minimum breathing room
 
-        # Stop loss distance: minimum 1.0% (0.010) of asset price to absorb small-cap noise
-        sl_pct = max(volatility * 1.5, 0.010)
-        tp_pct = sl_pct * target_payoff
+        sl_pct = max(volatility * sl_multiplier, min_sl_distance_pct)
+        tp_pct = sl_pct * rr_ratio
 
-        if direction > 0:
+        if direction > 0: # Long
             sl_price = entry_price * (1.0 - sl_pct)
             tp_price = entry_price * (1.0 + tp_pct)
-        else:
+        else: # Short
             sl_price = entry_price * (1.0 + sl_pct)
             tp_price = entry_price * (1.0 - tp_pct)
 
-        return sl_price, tp_price, sl_pct
+        return round(sl_price, 4), round(tp_price, 4), sl_pct
 
-    def calculate_exact_lot_and_leverage(
+    def calculate_exact_lot_units(
         self,
-        capital: float,
         entry_price: float,
         sl_price: float,
         risk_dollar: float
-    ) -> Dict[str, Any]:
+    ) -> float:
         """
-        Calculates exact lot units (N) and required leverage (L) so that touching SL
-        results in a loss of EXACTLY risk_dollar ($1.00).
+        Calculates exact unit quantity N such that:
+        N * |P_entry - P_SL| = risk_dollar
         """
-        if entry_price <= 0 or sl_price <= 0 or entry_price == sl_price:
-            return {"units": 0.0, "position_value": 0.0, "required_leverage": 1.0}
-
         sl_distance = abs(entry_price - sl_price)
-        sl_pct = sl_distance / entry_price
-
-        units = risk_dollar / sl_distance
-        position_value = units * entry_price
-
-        required_leverage = position_value / max(capital, 1.0)
-        required_leverage = max(round(required_leverage, 1), 1.0)
-
-        return {
-            "units": units,
-            "position_value": position_value,
-            "required_leverage": required_leverage,
-            "sl_distance_pct": sl_pct * 100.0,
-            "risk_dollar": risk_dollar
-        }
+        if sl_distance <= 1e-6:
+            return 0.0
+        return float(risk_dollar / sl_distance)
 
     def calculate_position_size(
         self,
@@ -102,95 +95,56 @@ class VolatilityTargetPositionSizer:
         score: float,
         volatility: float,
         risk_budget_ratio: float = 0.01,
-        is_circuit_broken: bool = False
+        is_circuit_broken: bool = False,
+        regime: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Calculates position size in units and dollar value (Man AHL + Tiered Risk).
+        Synthesizes position direction, target value, and exact units bounded by risk constraint.
         """
-        if is_circuit_broken or abs(score) < 0.1 or current_price <= 0 or capital <= 0:
+        if is_circuit_broken or abs(score) < 0.5 or current_price <= 0:
             return {
-                "target_units": 0.0,
-                "target_value": 0.0,
                 "direction": 0,
-                "reason": "Circuit broken or neutral signal" if is_circuit_broken else "Zero score"
+                "target_value": 0.0,
+                "units": 0.0,
+                "sl_price": 0.0,
+                "tp_price": 0.0,
+                "risk_dollar": 0.0
             }
 
         direction = 1 if score > 0 else -1
-        abs_score = abs(score)
+        conviction = min(abs(score) / 4.0, 1.0)
 
-        # Use Tiered Risk Dollar ($1.00 if capital < $100, else 1% of capital)
-        nominal_risk_budget = self.calculate_tiered_risk_dollar(capital)
+        # Risk dollar allocation
+        base_risk_dollar = self.calculate_tiered_risk_dollar(capital)
+        trade_risk_dollar = base_risk_dollar * conviction
 
-        # Man AHL Volatility Targeting: Position Value = (Score * Risk Budget) / Volatility
-        raw_position_value = (abs_score * nominal_risk_budget) / volatility
+        sl_price, tp_price, sl_pct = self.calculate_sl_tp_levels(
+            entry_price=current_price,
+            direction=direction,
+            volatility=volatility,
+            rr_ratio=2.5,
+            regime=regime
+        )
 
-        max_allowed_value = capital * self.max_risk_per_trade * abs_score
-        capped_position_value = min(raw_position_value, max_allowed_value)
+        units = self.calculate_exact_lot_units(
+            entry_price=current_price,
+            sl_price=sl_price,
+            risk_dollar=trade_risk_dollar
+        )
 
-        target_units = (capped_position_value * direction) / current_price
+        target_value = units * current_price
 
-        # Also calculate SL/TP and exact leverage needed for $1 loss cap
-        sl_price, tp_price, sl_pct = self.calculate_sl_tp_levels(current_price, direction, volatility)
-        lot_leverage = self.calculate_exact_lot_and_leverage(capital, current_price, sl_price, nominal_risk_budget)
+        # Cap max position value to 2x capital (2x max leverage limit for safety)
+        if target_value > capital * 2.0:
+            target_value = capital * 2.0
+            units = target_value / current_price
 
         return {
-            "target_units": target_units,
-            "target_value": capped_position_value * direction,
             "direction": direction,
-            "score": score,
-            "volatility": volatility,
-            "sl_price": sl_price,
-            "tp_price": tp_price,
-            "risk_dollar": nominal_risk_budget,
-            "required_leverage": lot_leverage["required_leverage"]
-        }
-
-    def evaluate_bep_and_trailing_stop(
-        self,
-        position: Dict[str, Any],
-        current_price: float,
-        volatility: float,
-        fee_buffer_pct: float = 0.001
-    ) -> Dict[str, Any]:
-        """
-        Evaluates position on hourly tick:
-        1. Moves SL to BEP (Break-Even Point) when running profit >= 1R ($1 profit).
-        2. Trails SL above entry price as profit increases (Locking in profit).
-        """
-        direction = position["direction"]
-        entry_price = position["entry_price"]
-        current_sl = position.get("sl_price", entry_price)
-        risk_dollar = position.get("risk_dollar", 1.00)
-        units = position["units"]
-
-        running_pnl = (current_price - entry_price) * units
-        updated_sl = current_sl
-        sl_status = "HOLD"
-
-        bep_price = entry_price * (1.0 + fee_buffer_pct) if direction > 0 else entry_price * (1.0 - fee_buffer_pct)
-
-        if running_pnl >= risk_dollar:
-            if (direction > 0 and current_sl < bep_price) or (direction < 0 and current_sl > bep_price):
-                updated_sl = bep_price
-                sl_status = "MOVED_TO_BEP"
-
-        if running_pnl >= (1.5 * risk_dollar):
-            trail_dist = (volatility * 1.5) * current_price
-            if direction > 0:
-                proposed_sl = current_price - trail_dist
-                if proposed_sl > updated_sl:
-                    updated_sl = proposed_sl
-                    sl_status = "TRAILING_PROFIT"
-            else:
-                proposed_sl = current_price + trail_dist
-                if proposed_sl < updated_sl:
-                    updated_sl = proposed_sl
-                    sl_status = "TRAILING_PROFIT"
-
-        return {
-            "updated_sl": updated_sl,
-            "sl_status": sl_status,
-            "running_pnl": running_pnl,
-            "is_sl_hit": (current_price <= updated_sl) if direction > 0 else (current_price >= updated_sl),
-            "is_tp_hit": (current_price >= position.get("tp_price", float('inf'))) if direction > 0 else (current_price <= position.get("tp_price", 0.0))
+            "target_value": float(target_value),
+            "units": float(units),
+            "sl_price": float(sl_price),
+            "tp_price": float(tp_price),
+            "risk_dollar": float(trade_risk_dollar),
+            "sl_pct": float(sl_pct)
         }

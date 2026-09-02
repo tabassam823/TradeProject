@@ -1,28 +1,42 @@
-import time
-import datetime
-from apscheduler.schedulers.blocking import BlockingScheduler
-from src.paper_trader import PaperTrader
+"""
+24/7 High-Frequency Trading Worker & Scheduler.
+Runs continuous evaluation ticks and periodically generates the performance leaderboard.
+"""
 
-def scheduled_job():
-    print(f"\n=======================================================")
-    print(f"  CRON TICK: Running Paper Trading ({datetime.datetime.now()})")
+import time
+import os
+import datetime
+from src.paper_trader import PaperTrader
+from src.leaderboard import StrategyLeaderboard
+
+def main():
+    interval = int(os.getenv("TICK_INTERVAL_SECONDS", "30"))
     print(f"=======================================================")
-    try:
-        trader = PaperTrader()
-        trader.run_tick()
-    except Exception as e:
-        print(f"[Cron Error] Exception during tick: {e}")
+    print(f"  TradeProject 24/7 Multi-Strategy Paper Trader")
+    print(f"  Execution Mode: CONTINUOUS (Interval: {interval}s)")
+    print(f"  Startup Time:   {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"=======================================================\n")
+    
+    trader = PaperTrader()
+    leaderboard = StrategyLeaderboard()
+    tick_count = 0
+
+    while True:
+        try:
+            trader.run_tick()
+            tick_count += 1
+            
+            # Periodically output updated leaderboard to logs every 5 ticks
+            if tick_count % 5 == 0:
+                leaderboard.generate_leaderboard()
+
+        except Exception as e:
+            print(f"[Worker Error] Exception during tick: {e}")
+
+        time.sleep(interval)
 
 if __name__ == "__main__":
-    print("[Scheduler] Starting 24/7 Trading Scheduler...")
-    # Execute immediately once on startup
-    scheduled_job()
-    
-    # Schedule to run every hour at minute 0
-    scheduler = BlockingScheduler()
-    scheduler.add_job(scheduled_job, 'cron', minute=0)
-    
     try:
-        scheduler.start()
+        main()
     except (KeyboardInterrupt, SystemExit):
-        print("[Scheduler] Stopped.")
+        print("\n[Scheduler] Stopped by operator.")
