@@ -1,0 +1,150 @@
+# =============================================
+# IP WHITELIST SETUP GUIDE FOR BINANCE API
+# =============================================
+#
+# PURPOSE: Binance requires you to whitelist the IP address
+# that will be making API requests. This is a security feature.
+#
+# WHY YOU NEED THIS:
+# - Without an IP whitelist, Binance won't allow trading orders
+# - Without proper IP, you CANNOT enable Futures, Margin, or API Trading
+# - This guide helps you find your correct IP and set it up
+
+# =============================================
+# STEP 1: FIND YOUR PUBLIC IP ADDRESS
+# =============================================
+#
+# Run one of these commands to find your public IP:
+#
+# Linux/Mac Terminal:
+#   curl ifconfig.me
+#   curl ipinfo.io/ip
+#   wget -qO- https://checkip.amazonaws.com
+#
+# Windows CMD:
+#   curl ifconfig.me
+#   powershell -Command "(Invoke-WebRequest ifconfig.me).Content.Trim()"
+#
+# Windows PowerShell:
+#   (Invoke-RestMethod https://ifconfig.me)
+#
+# IMPORTANT: This must be your PUBLIC IP (not 192.168.x.x)
+# If you're behind NAT/router, your public IP is what your ISP assigns.
+
+# =============================================
+# STEP 2: DETERMINE YOUR DEPLOYMENT IP
+# =============================================
+#
+# DIFFERENT PLATFORMS HAVE DIFFERENT IPs:
+#
+# A) LOCAL WINDOWS TERMINAL (24/7 on your PC):
+#    - Find your public IP as above
+#    - This is likely DYNAMIC (changes every few hours/days)
+#    - For dynamic IPs, use "0.0.0.0/0" (all IPs allowed) OR
+#      set up a DDNS (Dynamic DNS) service
+#    - Recommended: Use Cloudflare DDNS or DuckDNS for static hostname
+#
+# B) RAILWAY (Cloud Deploy):
+#    - Railway IPs CHANGE per-deploy
+#    - Check current Railway IP: curl https://api.ipify.org
+#    - Railway supports static IP via "Static Outbound IP" add-on
+#    - Or whitelist 0.0.0.0/0 (less secure but practical)
+#
+# C) VPS/Dedicated Server:
+#    - Your VPS has a static IP
+#    - Use that IP directly in Binance API whitelist
+#    - Most reliable option
+
+# =============================================
+# STEP 3: ADD IP TO BINANCE API WHITELIST
+# =============================================
+#
+# 1. Go to: https://www.binance.com/en/my/settings/api-management
+# 2. Click on your API key
+# 3. Scroll to "IP Access Restrictions"
+# 4. Click "Add IP" or "Edit"
+# 5. Enter your IP in CIDR format:
+#    - Single IP:    123.45.67.89
+#    - IP Range:     123.45.67.0/24
+#    - All IPs:      0.0.0.0/0
+# 6. SAVE
+#
+# =============================================
+# STEP 4: ENABLE FUTURES TRADING
+# =============================================
+#
+# After adding your IP, go to Binance API settings:
+#
+# 1. ✅ Enable Reading      (for market data)
+# 2. ✅ Enable Spot & Margin (if you want spot too)
+# 3. ✅ Enable Futures      (CRITICAL for futures trading!)
+# 4. ✅ Enable BNBLeveraged    (if you want BNB discount)
+# 5. ❌ Enable Withdrawals  (NEVER enable this for a trading bot)
+# 6. ✅ IP Access Restrictions → add your IP here
+#
+# =============================================
+# STEP 5: VERIFY IT WORKS
+# =============================================
+#
+# Test your API connection:
+#
+#   python3 -c "
+#   from src.core.binance_client_wds import BinanceFuturesClient
+#   client = BinanceFuturesClient(api_key='YOUR_KEY', secret_key='YOUR_SECRET', testnet=True)
+#   print(client.get_account_balance())
+#   "
+#
+# If this works → your IP whitelist is correct!
+# If this fails with IP error → add correct IP to whitelist.
+
+# =============================================
+# CURRENT NETWORK INFO
+# =============================================
+# This file was generated with the following network info:
+# 
+# Local IP:     192.168.0.114
+# Public IP:    100.112.51.99 (verify with: curl ifconfig.me)
+# Note:         This IP may be dynamic. If it changes, update Binance whitelist.
+#
+# =============================================
+# RECOMMENDED SETUP FOR 24/7 WINDOWS TERMINAL
+# =============================================
+#
+# Option A: Use 0.0.0.0/0 (simplest, less secure)
+#   - In Binance API whitelist, enter: 0.0.0.0/0
+#   - Allows all IPs to access your API
+#   - RISK: Anyone with your API key can trade
+#   - MITIGATION: Keep API key secret, don't share it
+#
+# Option B: Use Dynamic DNS (recommended for production)
+#   - Sign up for DuckDNS.org (free) or Cloudflare DDNS
+#   - Set up a script on Windows to update DNS record
+#   - Add your DDNS hostname to Binance whitelist
+#   - Your IP changes, but hostname always points to you
+#   - COMMAND to add to Task Scheduler (runs every hour):
+#     windows: "curl -s \"https://www.duckdns.org/update?domains=YOURDOMAIN&token=YOURTOKEN&ip=\" > nul"
+#
+# Option C: Static IP / VPS (most secure)
+#   - Get a VPS with static IP ($3-5/month)
+#   - Use VPS IP for Binance whitelist
+#   - Run bot on VPS (Linux) instead of Windows
+#   - Most reliable for 24/7 operation
+#
+# =============================================
+# BINANCE API FEES (IMPORTANT)
+# =============================================
+#
+# USDT-M Futures Standard Tier:
+#   - Maker Fee (limit orders):  0.02% (0.0002)
+#   - Taker Fee (market orders): 0.04% (0.0004)
+#
+# With BNB Discount (25% off):
+#   - Maker Fee: 0.018% (0.00018)
+#   - Taker Fee: 0.036% (0.00036)
+#
+# VIP Tiers (lower fees at high volume):
+#   - VIP 0 (0-500M volume): 0.02% / 0.04%
+#   - VIP 1 (500M-25B):     0.018% / 0.036%
+#   - ... (higher tiers available)
+#
+# See: https://www.binance.com/en/fees/futures-activity

@@ -1,0 +1,31 @@
+{
+  "EXECUTION_MODE": "PAPER_TRADING",
+  "TRADING_PAIRS": [
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "BNB/USDT",
+    "AVAX/USDT"
+  ],
+  "TIMEFRAME": "1h",
+  "INITIAL_CAPITAL": 20.0,
+  "BINANCE_SANDBOX": true,
+  "RISK_LIMITS": {
+    "max_risk_per_trade": 0.02,
+    "max_portfolio_drawdown": 0.15,
+    "max_open_positions": 5
+  },
+  "OPENBB": {
+    "ENABLE_SENTIMENT": true,
+    "CRITICAL_SENTIMENT_THRESHOLD": -0.6
+  },
+  "_FUTURES_SETTINGS": {
+    "_note": "Futures-specific settings (used when EXECUTION_MODE = LIVE_TRADING)",
+    "LEVERAGE": 20,
+    "MARGIN_MODE": "isolated",
+    "USE_BNB_DISCOUNT": false,
+    "_leverage_note": "Max leverage varies by symbol: BTC=125x, ETH=100x, SOL=50x",
+    "_margin_note": "isolated = risk limited to position margin (recommended), cross = all balance as margin",
+    "_bnb_note": "Set USE_BNB_DISCOUNT=true if you hold BNB for 25% fee discount"
+  }
+}

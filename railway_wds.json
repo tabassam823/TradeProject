@@ -1,0 +1,29 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile_wds"
+  },
+  "deploy": {
+    "startCommand": "python3 run_scheduler_wds.py",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10,
+    "staticIp": false
+  },
+  "environments": {
+    "production": {
+      "variables": {
+        "EXECUTION_MODE": "PAPER_TRADING",
+        "BINANCE_SANDBOX": true,
+        "TICK_INTERVAL_SECONDS": "30"
+      }
+    },
+    "staging": {
+      "variables": {
+        "EXECUTION_MODE": "PAPER_TRADING",
+        "BINANCE_SANDBOX": true,
+        "TICK_INTERVAL_SECONDS": "15"
+      }
+    }
+  }
+}
