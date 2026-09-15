@@ -116,17 +116,44 @@ def get_equity_curve_df(ledger: Dict[str, Any], strategy_name: str) -> pd.DataFr
 
 def get_trades_df(ledger: Dict[str, Any], strategy_name: str) -> pd.DataFrame:
     """Returns closed trades for one strategy as a DataFrame (empty if
-    none yet)."""
+    none yet). Actual fields written by
+    src/core/position_lifecycle_manager.py are: symbol, direction (1/-1),
+    entry_price, exit_price, net_pnl, return_pct, entry_time, exit_time,
+    exit_reason -- NOT open_time/close_time."""
     strat = ledger.get(strategy_name, {})
     trades = strat.get("closed_trades", [])
     if not trades:
         return pd.DataFrame()
 
     df = pd.DataFrame(trades)
-    for col in ("open_time", "close_time", "timestamp"):
+    for col in ("entry_time", "exit_time"):
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors="coerce")
+    if "direction" in df.columns:
+        df["side"] = df["direction"].map({1: "Long", -1: "Short"}).fillna("Unknown")
     return df
+
+
+def get_all_trades_df(ledger: Dict[str, Any]) -> pd.DataFrame:
+    """Returns closed trades across ALL strategies, with a `strategy`
+    column added, concatenated into one DataFrame. Empty DataFrame if no
+    trades exist anywhere yet."""
+    frames = []
+    for name in get_strategy_names(ledger):
+        df = get_trades_df(ledger, name)
+        if df.empty:
+            continue
+        df = df.copy()
+        df.insert(0, "strategy", name)
+        frames.append(df)
+
+    if not frames:
+        return pd.DataFrame()
+
+    combined = pd.concat(frames, ignore_index=True)
+    if "exit_time" in combined.columns:
+        combined = combined.sort_values("exit_time", ascending=False).reset_index(drop=True)
+    return combined
 
 
 def get_strategy_summary_rows(ledger: Dict[str, Any]) -> List[Dict[str, Any]]:
