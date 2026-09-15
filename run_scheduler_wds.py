@@ -38,16 +38,12 @@ def load_config(config_path: str = "config.json") -> dict:
 
 
 def load_env():
-    """Loads environment variables from .env or .env_wds."""
+    """Loads environment variables from .env and then overrides with .env_wds."""
     from dotenv import load_dotenv
+    # Load generic .env first (if exists)
     load_dotenv()
-    
-    # Also try .env_wds if .env doesn't have API keys
-    if not os.getenv("BINANCE_API_KEY"):
-        try:
-            load_dotenv(".env_wds")
-        except Exception:
-            pass
+    # Always load .env_wds afterwards, overriding any duplicate keys
+    load_dotenv('.env_wds', override=True)
 
 
 def setup_futures_client(testnet: bool = True):

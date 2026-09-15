@@ -94,7 +94,7 @@ class BinanceFuturesClient:
         exchange_params = {
             'enableRateLimit': True,
             'options': {
-                'defaultType': 'futures',  # CRITICAL: Must be 'futures', NOT 'spot'
+                'defaultType': 'future',  # CRITICAL: Must be 'future', NOT 'spot'
             }
         }
         
@@ -105,13 +105,13 @@ class BinanceFuturesClient:
         self.exchange = ccxt.binance(exchange_params)
         
         if testnet:
-            self.exchange.set_sandbox_mode(True)
-            # Override URLs to point to Futures Testnet
-            self.exchange.urls['api'] = {
-                'public': 'https://testnet.binancefuture.com/fapi',
-                'private': 'https://testnet.binancefuture.com/fapi',
-                'www': 'https://testnet.binancefuture.com',
-            }
+            # NOTE: ccxt removed sandbox support for Binance Futures.
+            # Instead we use the public testnet (demo) endpoints without enabling sandbox mode.
+            # Preserve existing API dict and only override the futures URLs.
+            self.exchange.urls['api']['fapiPublic'] = 'https://testnet.binancefuture.com/fapi/v1'
+            self.exchange.urls['api']['fapiPrivate'] = 'https://testnet.binancefuture.com/fapi/v1'
+            self.exchange.urls['api']['fapiPublicV2'] = 'https://testnet.binancefuture.com/fapi/v2'
+            self.exchange.urls['api']['fapiPrivateV2'] = 'https://testnet.binancefuture.com/fapi/v2'
 
     def _get_contract_size(self, symbol: str) -> float:
         """Returns the contract size (in base asset) for a symbol."""
@@ -337,18 +337,26 @@ class BinanceFuturesClient:
             return {'status': 'error', 'message': str(e)}
 
     def get_account_balance(self) -> Dict[str, Any]:
-        """Get futures account balance."""
+        """Get futures account balance (USDT‑M) using the Binance Futures endpoint.
+        This avoids the Spot `/sapi/v1/capital/config/getall` call that ccxt may fall back to.
+        """
         if not self.exchange.apiKey:
             return {"status": "skipped"}
-        
         try:
-            balance = self.exchange.fetch_balance()
-            usdt_balance = balance.get('USDT', {})
+            # Direct call to the futures account endpoint (GET /fapi/v2/account)
+            # ccxt exposes it as `fapiPrivateGetAccount` when defaultType='future'.
+            account_info = self.exchange.fapiPrivateGetAccount()
+            # The response contains a list of assets; we extract the USDT‑M balance.
+            usdt_balance = {}
+            for asset in account_info.get('assets', []):
+                if asset.get('asset') == 'USDT':
+                    usdt_balance = asset
+                    break
             return {
                 "status": "success",
-                "total": usdt_balance.get('total', 0),
-                "free": usdt_balance.get('free', 0),
-                "used": usdt_balance.get('used', 0),
+                "total": float(usdt_balance.get('walletBalance', 0)),
+                "free": float(usdt_balance.get('availableBalance', 0)),
+                "used": float(usdt_balance.get('maintMargin', 0)),
             }
         except Exception as e:
             print(f"[BinanceFuturesClient] Failed to get balance: {e}")
