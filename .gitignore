@@ -1,6 +1,7 @@
 # Secrets & Credentials
 .env
 *.env
+.env_wds
 
 # Python Cache & Virtual Environments
 __pycache__/
@@ -17,6 +18,7 @@ openbb_venv/
 FinceptTerminal/
 OpenBB/
 machine-learning-for-trading/
+nautilus_trader/
 .obsidian/
 *.html
 

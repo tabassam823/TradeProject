@@ -23,6 +23,8 @@ from src.strategies.sentiment_trend import SentimentFilteredTrendStrategy
 from src.strategies.factor_regime import FactorRegimeStrategy
 from src.strategies.first_passage_value import FirstPassageValueStrategy
 from src.strategies.qubo_portfolio_selector import QUBOPortfolioStrategy
+from src.strategies.rule_based_strategy import RuleBasedStrategy  # <-- NEW
+
 
 class MultiStrategyBacktester:
     """
@@ -63,7 +65,24 @@ class MultiStrategyBacktester:
         if strat_configs.get("first_passage_value", {}).get("enabled", True):
             self.strategies.append(FirstPassageValueStrategy(config=strat_configs["first_passage_value"]))
 
+
         if strat_configs.get("qubo_portfolio_selector", {}).get("enabled", True):
+            self.strategies.append(QUBOPortfolioStrategy(config=strat_configs["qubo_portfolio_selector"]))
+
+
+        # --- Custom no-code strategies created via the Strategy Builder web UI ---
+        custom_strategies_path = "custom_strategies.json"
+        if os.path.exists(custom_strategies_path):
+            try:
+                with open(custom_strategies_path, "r") as f:
+                    custom_configs = json.load(f)
+                for custom_name, custom_cfg in custom_configs.items():
+                    if custom_cfg.get("enabled", True):
+                        self.strategies.append(RuleBasedStrategy(name=custom_name, config=custom_cfg))
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"[Backtester] Warning: failed to load custom_strategies.json: {e}")
+
+
             self.strategies.append(QUBOPortfolioStrategy(config=strat_configs["qubo_portfolio_selector"]))
 
     def run_backtest(self, days: int = 30) -> Dict[str, Any]:
