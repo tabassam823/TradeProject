@@ -1,0 +1,76 @@
+# docker-compose.yml
+#
+# Menjalankan 2 service terpisah:
+#   - worker : trading engine 24/7 (run_scheduler.py) -- proses yang sama
+#              seperti yang sudah dipakai untuk deploy Railway sebelumnya.
+#   - ui     : dashboard Streamlit (read-only terhadap trading, baca
+#              logs/paper_ledger.json & logs/leaderboard.json).
+#
+# Keduanya berbagi folder ./logs dan file ./custom_strategies.json lewat
+# bind mount, supaya:
+#   - worker menulis hasil trading -> langsung terlihat di UI (tanpa rebuild)
+#   - strategi baru yang disimpan lewat Strategy Builder -> langsung
+#     terbaca oleh worker setelah di-restart (lihat catatan di bawah)
+#
+# config.json dan strategy_config.json SENGAJA tidak di-mount sebagai
+# volume -- keduanya baked-in ke image saat build. Kalau kamu ubah salah
+# satu file itu, jalankan `docker compose up -d --build` lagi.
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tradeproject-worker
+    command: python3 run_scheduler.py
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./logs:/app/logs
+      - ./custom_strategies.json:/app/custom_strategies.json
+    restart: unless-stopped
+    networks:
+      - tradeproject-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    container_name: tradeproject-ui
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - STREAMLIT_SERVER_RUN_ON_SAVE=true
+    ports:
+      # Ganti "127.0.0.1:8501:8501" kalau ingin dashboard HANYA bisa
+      # diakses dari server itu sendiri (lebih aman, akses via SSH tunnel).
+      # Default di bawah ini membuka port 8501 ke semua network interface.
+      - "8501:8501"
+    volumes:
+      - ./logs:/app/logs
+      - ./custom_strategies.json:/app/custom_strategies.json
+      - ./models:/app/models
+      - ./ui:/app/ui
+      - ./src:/app/src
+    restart: unless-stopped
+    depends_on:
+      - worker
+    networks:
+      - tradeproject-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  tradeproject-net:
+    driver: bridge

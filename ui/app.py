@@ -34,25 +34,50 @@ st.caption("Dashboard baca-saja untuk engine multi-strategi (logs/paper_ledger.j
 
 ledger = load_ledger()
 
-if not ledger:
-    st.warning(
-        "Belum ada data di `logs/paper_ledger.json`.\n\n"
-        "Jalankan worker terlebih dahulu di terminal terpisah:\n\n"
-        "```bash\n"
-        "python run_scheduler.py\n"
-        "```\n"
-        "atau satu tick manual dengan `python main.py --mode paper`."
-    )
-    st.stop()
+metrics = get_overview_metrics(ledger) if ledger else {
+    "num_strategies": 0, "total_equity": 10000.0, "total_pnl": 0.0, "total_open_positions": 0
+}
+benchmark = get_benchmark_meta(ledger) if ledger else None
 
-metrics = get_overview_metrics(ledger)
-benchmark = get_benchmark_meta(ledger)
+if not ledger:
+    st.info("ℹ️ Worker background belum dijalankan (`logs/paper_ledger.json` kosong). Anda tetap dapat menggunakan modul **SigTrade Analytic**, **PyTorch ML Lab**, dan **Head-to-Head Benchmark** melalui menu navigasi di sidebar kiri.")
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Strategi Aktif", metrics["num_strategies"])
 col2.metric("Total Equity", f"${metrics['total_equity']:,.2f}")
 col3.metric("Total PnL", f"${metrics['total_pnl']:,.2f}")
 col4.metric("Posisi Terbuka", metrics["total_open_positions"])
+
+st.divider()
+
+# Module Navigator Cards (ala quant-tool)
+st.markdown("### 🛠️ Modul Kuantitatif & Machine Learning")
+m_col1, m_col2 = st.columns(2)
+
+with m_col1:
+    st.markdown("""
+    #### 📐 Signature Trading (Closed-Form)
+    - **[SigTrade Analytic Calibrator](📐_SigTrade_Analytic)** — Kalibrasi solusi analitik $\\ell^*$ (Theorem 3.1) dari data pasar historis.
+    - **Signature Efficient Frontier** — Plot kurva frontier return ekspektasi vs volatilitas untuk alokasi risiko dinamis.
+    - **Word Weight Inspection** — Dekomposisi bobot fungsional linear pada aljabar tensor.
+
+    #### ⚔️ Backtesting & Benchmarking
+    - **[Head-to-Head Benchmark](⚔️_Head_to_Head)** — Uji komparasi langsung: *Buy & Hold vs Markowitz (Order 0) vs SigTrade (Order 2) vs PyTorch Deep Model*.
+    - **Underwater Drawdown Curves** — Validasi kontrol drawdown temporal khas path-dependent signature.
+    """)
+
+with m_col2:
+    st.markdown("""
+    #### 🧠 PyTorch Machine Learning Lab
+    - **[PyTorch ML Lab](🧠_PyTorch_ML_Lab)** — Laboratorium interaktif untuk melatih neural network (*SigNetMLP* & *TimeSeriesLSTM*).
+    - **Custom Portfolio Loss** — Pelatihan langsung mengoptimalkan *Mean-Variance Utility* atau *Sharpe Ratio* via backpropagation.
+    - **Live Loss Convergence** — Pantau kurva konvergensi *Train vs Validation Loss* secara real-time.
+
+    #### 📈 Execution & Post-Trade Analytics
+    - **[MFE / MAE Execution Analysis](🎯_MFE_MAE_Analysis)** — Diagnosa kualitas eksekusi dari Quant-Analysis-Toolkit (analisis laba puncak, *left-on-table*, dan efisiensi keluar).
+    - **[Leaderboard](1_Leaderboard)** & **[Equity Curve](2_Equity_Curve)** — Pantau metrik performa (Sharpe, Profit Factor, Win Rate) dan riwayat eksekusi posisi live/paper.
+    - **Strategi Klasik Aktif** — Dual Thrust (Breakout), Awesome Oscillator (Momentum), Bollinger Reversion (Mean Reversion), dan Heikin-Ashi (Smoothed Trend).
+    """)
 
 st.divider()
 
@@ -65,7 +90,7 @@ if benchmark:
     st.divider()
 
 st.subheader("Ringkasan per Strategi")
-rows = get_strategy_summary_rows(ledger)
+rows = get_strategy_summary_rows(ledger) if ledger else []
 if rows:
     df = pd.DataFrame(rows)
     st.dataframe(
@@ -78,10 +103,4 @@ if rows:
         },
     )
 else:
-    st.info("Belum ada strategi tercatat di ledger.")
-
-st.info(
-    "Gunakan menu di sidebar kiri untuk melihat **Leaderboard** lengkap "
-    "(Sharpe, win rate, profit factor, dll) dan **Equity Curve** interaktif "
-    "tiap strategi."
-)
+    st.caption("Belum ada posisi paper trading aktif. Jalankan `python run_scheduler.py` untuk trading kontinu.")

@@ -9,16 +9,9 @@ __pycache__/
 *.pyo
 *.pyd
 .venv/
-venv/
-openbb_env/
-openbb_venv/
 .aqt-venv/
 
 # Heavy Unused External Repos & Assets
-FinceptTerminal/
-OpenBB/
-machine-learning-for-trading/
-nautilus_trader/
 .obsidian/
 *.html
 
@@ -27,6 +20,7 @@ logs/
 paper_ledger.json
 backtest_results.json
 leaderboard.json
+check_api.ipynb
 
 # System & OS Files
 .DS_Store

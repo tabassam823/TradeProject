@@ -62,6 +62,57 @@
       "risk_penalty_lambda": 0.5,
       "max_assets": 3,
       "risk_budget": 0.02
+    },
+    "signature_trading": {
+      "enabled": true,
+      "name": "Path-Dependent Signature Trading (Closed-Form)",
+      "truncation_order": 2,
+      "lookback_window": 24,
+      "stride": 2,
+      "tikhonov_gamma": 0.0001,
+      "target_variance_delta": 0.01,
+      "risk_budget": 0.02,
+      "weights_file": "models/sigtrade_weights.json",
+      "feature_cols": ["close", "volume"]
+    },
+    "deep_sig_trading": {
+      "enabled": true,
+      "name": "Deep Signature Trading (PyTorch ML)",
+      "architecture": "SigNetMLP",
+      "lookback_window": 24,
+      "signature_order": 2,
+      "use_signature": true,
+      "checkpoint_file": "models/torch_checkpoints/best_signet.pt",
+      "risk_budget": 0.02,
+      "feature_cols": ["close", "volume"]
+    },
+    "dual_thrust": {
+      "enabled": true,
+      "name": "Dual Thrust Range Breakout (quant-trading)",
+      "lookback": 14,
+      "k1": 0.5,
+      "k2": 0.5,
+      "risk_budget": 0.015
+    },
+    "awesome_oscillator": {
+      "enabled": true,
+      "name": "Awesome Oscillator Momentum (quant-trading)",
+      "fast_period": 5,
+      "slow_period": 34,
+      "risk_budget": 0.01
+    },
+    "bollinger_mean_reversion": {
+      "enabled": true,
+      "name": "Bollinger Bands Mean Reversion (quant-trading & gs-quant)",
+      "period": 20,
+      "num_std": 2.0,
+      "risk_budget": 0.015
+    },
+    "heikin_ashi_trend": {
+      "enabled": true,
+      "name": "Heikin-Ashi Smoothed Trend (quant-trading)",
+      "lookback": 10,
+      "risk_budget": 0.01
     }
   }
 }
