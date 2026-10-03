@@ -925,15 +925,14 @@ In summary, the Sig-Trading framework provides an alternative to machine learnin
 
 
 
-> ## Appendix A: Rough Path & Tensor Algebra Preliminaries {#sec:appx_rough_paths}
->
-> We aim to keep this paper self-contained by recalling the concepts and definitions we explicitly use in this paper. In this appendix we recall necessary fundamental building blocks used in our derivations.
->
-> ### A.1 The Tensor Algebra
->
-> In this section, we define the space on which the signature is defined and introduce notations that are used throughout the paper.
+## Appendix A: Rough Path & Tensor Algebra Preliminaries {#sec:appx_rough_paths}
 
- definition
+ We aim to keep this paper self-contained by recalling the concepts and definitions we explicitly use in this paper. In this appendix we recall necessary fundamental building blocks used in our derivations. 
+### A.1 The Tensor Algebra
+
+In this section, we define the space on which the signature is defined and introduce notations that are used throughout the paper.
+
+definition
 **Definition 14**. *(Tensor Algebra). Let $d \geq 1$. We define the extended tensor algebra over $\mathbb{R}^d$ by 
 $$
 \begin{align*}
