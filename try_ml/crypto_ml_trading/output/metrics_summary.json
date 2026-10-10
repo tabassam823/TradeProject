@@ -1,0 +1,89 @@
+{
+    "asset": "SOL-USD",
+    "target_sharpe": 1.5,
+    "baseline_metrics": {
+        "initial_capital": 1000.0,
+        "final_equity": 906.6646245278921,
+        "total_net_return_pct": -9.33353754721079,
+        "buy_and_hold_return_pct": -10.88140910355142,
+        "sharpe_ratio": -0.08363179876676226,
+        "max_drawdown_pct": -23.362542352361597,
+        "total_trades": 276.0,
+        "win_rate_pct": 46.01449275362319,
+        "profit_factor": 1.0953659090008574,
+        "total_fees_paid": 603.5050755576146
+    },
+    "improved_metrics": {
+        "initial_capital": 1000.0,
+        "final_equity": 3257.10920058351,
+        "total_net_return_pct": 225.710920058351,
+        "buy_and_hold_return_pct": -10.88140910355142,
+        "sharpe_ratio": 3.188240238529265,
+        "max_drawdown_pct": -24.829752004099507,
+        "total_trades": 228.0,
+        "win_rate_pct": 54.824561403508774,
+        "profit_factor": 1.6604788405103579,
+        "total_fees_paid": 1130.7631556537617
+    },
+    "best_hyperparameters": {
+        "entry_z": 1.0,
+        "exit_z": 0.0,
+        "min_hold_hours": 24,
+        "sl_atr_mult": 1.5,
+        "tp_atr_mult": null,
+        "trail_act_atr": 1.5,
+        "trail_dist_atr": 1.0,
+        "smooth_span": 4,
+        "z_window": 168,
+        "use_sma_filter": true,
+        "allow_short": true,
+        "fee_rate": 0.00075,
+        "risk_pct": 0.02,
+        "max_leverage": 2.0,
+        "use_cooldown": true,
+        "max_lose_streak": 3,
+        "cooldown_hours": 24
+    },
+    "top_features": [
+        {
+            "feature": "candle_hl_range",
+            "importance": 77.25581395348837
+        },
+        {
+            "feature": "btc_ret_1",
+            "importance": 73.90697674418605
+        },
+        {
+            "feature": "natr_14",
+            "importance": 62.30232558139535
+        },
+        {
+            "feature": "sol_btc_rel_strength",
+            "importance": 59.627906976744185
+        },
+        {
+            "feature": "dist_sma_200",
+            "importance": 58.72093023255814
+        },
+        {
+            "feature": "news_sentiment_ema_24h",
+            "importance": 58.395348837209305
+        },
+        {
+            "feature": "ret_3",
+            "importance": 55.7906976744186
+        },
+        {
+            "feature": "ret_2",
+            "importance": 51.72093023255814
+        },
+        {
+            "feature": "news_sentiment_shock",
+            "importance": 49.30232558139535
+        },
+        {
+            "feature": "btc_ret_6",
+            "importance": 48.348837209302324
+        }
+    ]
+}

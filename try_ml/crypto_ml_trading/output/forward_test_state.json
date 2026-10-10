@@ -1,0 +1,16 @@
+{
+    "capital": 4991.8289136,
+    "curr_pos": 0.0,
+    "curr_units": 0.0,
+    "entry_price": 0.0,
+    "sl_price": 0.0,
+    "tp_price": 0.0,
+    "highest_price": 0.0,
+    "lowest_price": 1000000000.0,
+    "holding_hours": 0,
+    "consecutive_losses": 0,
+    "cooldown_remaining": 0,
+    "total_trades": 0,
+    "total_fees_paid": 0.0,
+    "last_update": "2026-10-08T15:18:46.739303+00:00"
+}

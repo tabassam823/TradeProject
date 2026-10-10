@@ -1,0 +1,93 @@
+{
+    "asset": "SOL-USD",
+    "instrument": "Options (Black-Scholes Simulated)",
+    "target_sharpe": 1.5,
+    "baseline_metrics": {
+        "initial_capital": 1000.0,
+        "final_equity": 578.3218392356645,
+        "total_net_return_pct": -42.16781607643355,
+        "buy_and_hold_return_pct": -10.88140910355142,
+        "sharpe_ratio": -2.4345318102291413,
+        "max_drawdown_pct": -43.730924499070476,
+        "total_trades": 246.0,
+        "win_rate_pct": 34.552845528455286,
+        "profit_factor": 0.7547398274699733,
+        "avg_return_per_trade_pct": -5.330559478286542,
+        "total_fees_paid": 189.13880252912452
+    },
+    "improved_metrics": {
+        "initial_capital": 1000.0,
+        "final_equity": 1398.6787728636332,
+        "total_net_return_pct": 39.86787728636332,
+        "buy_and_hold_return_pct": -10.88140910355142,
+        "sharpe_ratio": 1.5402819571620612,
+        "max_drawdown_pct": -18.870022516455435,
+        "total_trades": 114.0,
+        "win_rate_pct": 33.33333333333333,
+        "profit_factor": 1.4117841564314142,
+        "avg_return_per_trade_pct": 12.684121665315873,
+        "total_fees_paid": 137.8718625822639
+    },
+    "best_hyperparameters": {
+        "strategy_type": "outright",
+        "strike_moneyness": 1.0,
+        "spread_width_pct": 0.05,
+        "dte_hours": 72,
+        "entry_z": 1.4,
+        "exit_z": 0.0,
+        "min_hold_hours": 12,
+        "take_profit_pct": null,
+        "stop_loss_pct": 0.4,
+        "trail_act_pct": null,
+        "trail_dist_pct": null,
+        "smooth_span": 4,
+        "z_window": 168,
+        "use_sma_filter": true,
+        "allow_bearish_puts": true,
+        "use_cooldown": true,
+        "max_lose_streak": 3,
+        "cooldown_hours": 24
+    },
+    "top_features": [
+        {
+            "feature": "candle_hl_range",
+            "importance": 74.48837209302326
+        },
+        {
+            "feature": "btc_ret_1",
+            "importance": 70.81395348837209
+        },
+        {
+            "feature": "ret_3",
+            "importance": 54.86046511627907
+        },
+        {
+            "feature": "sol_btc_rel_strength",
+            "importance": 51.906976744186046
+        },
+        {
+            "feature": "dist_sma_200",
+            "importance": 51.23255813953488
+        },
+        {
+            "feature": "news_sentiment_ema_24h",
+            "importance": 51.18604651162791
+        },
+        {
+            "feature": "ret_2",
+            "importance": 47.86046511627907
+        },
+        {
+            "feature": "natr_14",
+            "importance": 46.97674418604651
+        },
+        {
+            "feature": "btc_ret_6",
+            "importance": 45.72093023255814
+        },
+        {
+            "feature": "news_sentiment_shock",
+            "importance": 44.93023255813954
+        }
+    ]
+}
