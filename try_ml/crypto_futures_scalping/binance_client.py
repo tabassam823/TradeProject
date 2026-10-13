@@ -237,17 +237,27 @@ class BinanceTestnetClient:
         side: str,
         quantity: float,
         tp_price: Optional[float] = None,
-        sl_price: Optional[float] = None
+        sl_price: Optional[float] = None,
+        leverage: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Executes On-Exchange Bracket Order for Scalping:
-        1. Market Entry
-        2. Take Profit Market (closePosition=True)
-        3. Stop Loss Market (closePosition=True)
+        1. Set dynamic leverage & clear old algo orders
+        2. Validate exchange filters & margin sufficiency
+        3. Market Entry
+        4. Take Profit Market (closePosition=True)
+        5. Stop Loss Market (closePosition=True)
         """
         if not self.is_connected or not self.client:
             print("[BINANCE SCALPER CLIENT] Client disconnected. Order aborted.")
             return {'status': 'ERROR', 'msg': 'Client disconnected'}
+
+        # 1. Update and apply dynamic leverage if provided
+        if leverage is not None and leverage > 0:
+            self.leverage = int(leverage)
+            self.set_leverage(self.leverage)
+        else:
+            self.set_leverage(self.leverage)
 
         rules = self.rules or self.get_symbol_rules(self.symbol)
         current_price = self.get_ticker_price()
@@ -262,7 +272,7 @@ class BinanceTestnetClient:
             print(f"[BINANCE SCALPER CLIENT] Quantity ({quantity}) below min notional. Adjusting to {valid_min_qty}.")
             valid_qty = valid_min_qty
 
-        # Margin sufficiency check
+        # Margin sufficiency check at the active dynamic leverage
         available_usdt = self.get_usdt_balance()
         notional = valid_qty * current_price
         required_margin = notional / self.leverage
@@ -270,15 +280,14 @@ class BinanceTestnetClient:
         total_needed = required_margin + estimated_fee
 
         if available_usdt < total_needed:
-            print(f"[BINANCE SCALPER CLIENT ERROR] Insufficient Margin: Need ${total_needed:.2f}, Available: ${available_usdt:.2f}")
-            return {'status': 'INSUFFICIENT_MARGIN'}
+            print(f"[BINANCE SCALPER CLIENT ERROR] Insufficient Margin: Need ${total_needed:.2f}, Available: ${available_usdt:.2f} (Leverage: {self.leverage}x)")
+            return {'status': 'INSUFFICIENT_MARGIN', 'msg': f'Need ${total_needed:.2f}, Available: ${available_usdt:.2f}'}
 
         is_long = side.upper() in ('BUY', 'LONG')
         entry_side = SIDE_BUY if is_long else SIDE_SELL
         exit_side = SIDE_SELL if is_long else SIDE_BUY
 
-        # 1. Reset leverage & clear old algo orders
-        self.set_leverage(self.leverage)
+        # Clear old algo orders
         self.cancel_all_algo_orders()
 
         result = {'entry': None, 'tp': None, 'sl': None, 'status': 'PENDING'}
@@ -371,19 +380,30 @@ class BinanceTestnetClient:
     def close_position(self, current_side: str, quantity: float) -> Optional[Dict[str, Any]]:
         """
         Closes existing position via reduceOnly Market Order and clears pending algo orders.
+        Gracefully handles positions already closed on-exchange by TP/SL orders.
         """
         if not self.is_connected or not self.client:
             return None
 
+        # 1. Clean pending TP/SL orders first
+        self.cancel_all_algo_orders()
+
+        # 2. Check actual live position on Binance
+        live_pos = self.get_current_position()
+        if live_pos.get('side') == 'FLAT' or live_pos.get('contracts', 0.0) <= 0.0:
+            print(f"[BINANCE SCALPER CLOSE] Position on {self.symbol} is ALREADY CLOSED (FLAT) on Binance (filled by on-exchange TP/SL).")
+            return {'status': 'ALREADY_CLOSED', 'msg': 'Position is flat on exchange'}
+
+        # 3. Calculate valid quantity matching actual live contracts
+        actual_contracts = live_pos.get('contracts', quantity)
         rules = self.rules or self.get_symbol_rules(self.symbol)
-        valid_qty = self.round_step_size(quantity, rules["step_size"])
+        valid_qty = self.round_step_size(min(quantity, actual_contracts), rules["step_size"])
         if valid_qty <= 0:
             valid_qty = rules["min_qty"]
 
-        close_side = SIDE_SELL if current_side.upper() == 'LONG' else SIDE_BUY
-        self.cancel_all_algo_orders()
+        close_side = SIDE_SELL if live_pos.get('side', current_side).upper() == 'LONG' else SIDE_BUY
 
-        print(f"[BINANCE SCALPER CLOSE] Closing {current_side} ({valid_qty} {self.symbol}) via MARKET {close_side}...")
+        print(f"[BINANCE SCALPER CLOSE] Closing {live_pos.get('side')} ({valid_qty} {self.symbol}) via MARKET {close_side}...")
         try:
             order = self.client.futures_create_order(
                 symbol=self.symbol,
@@ -395,5 +415,8 @@ class BinanceTestnetClient:
             print(f" -> Position Closed! Order ID: {order.get('orderId')}")
             return order
         except Exception as e:
+            if "-2022" in str(e) or "ReduceOnly" in str(e):
+                print(f"[BINANCE SCALPER NOTICE] Position was already closed on Binance during execution (-2022 handled).")
+                return {'status': 'ALREADY_CLOSED', 'msg': str(e)}
             print(f"[BINANCE SCALPER CLIENT ERROR] Failed to close position: {e}")
             return None

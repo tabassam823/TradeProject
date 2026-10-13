@@ -39,7 +39,7 @@
         "buy_and_hold_return_pct": 22.74107500251424
     },
     "best_hyperparameters": {
-        "entry_z": 2.0,
+        "entry_z": 1.3,
         "exit_z": 0.0,
         "min_hold_bars": 6,
         "max_hold_bars": 24,
@@ -51,10 +51,11 @@
         "z_window": 288,
         "use_trend_filter": false,
         "use_vol_filter": false,
-        "allow_short": false,
+        "allow_short": true,
         "fee_rate": 0.0006,
         "leverage": 3.0,
-        "risk_pct": 0.015,
+        "max_leverage": 20,
+        "risk_pct": 0.01,
         "use_cooldown": true,
         "max_lose_streak": 3,
         "cooldown_bars": 24

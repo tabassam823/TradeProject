@@ -1,0 +1,13 @@
+hal yang bisa ditambahkan 
+
+Define realistic parameter ranges
+Define a performance metric (Sharpe,...)
+Choose an optimization algorithm (grid search, random search, evolutionary,...)
+Done only on in sample data
+
+Sharpe ratio: mean(r) / std(r) * sgrt(N)
+Sortino ratio: mean(r) / std(r<0) * saqrt(N)
+Profit factor: sum(r>0) / abs(sum(r<O) )
+Calmar ratio: CAGR / abs(max_drawdown)
+Ulcer index: sgrt(sum(DD?) / N)
+Probabilistic sharpe ratio

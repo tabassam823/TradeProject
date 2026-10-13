@@ -28,7 +28,8 @@ DEFAULT_INITIAL_CAPITAL = 1000.0
 # Binance VIP0 Futures Taker Fee (0.05%) + Execution Slippage (0.01%) = 0.06% (0.0006)
 DEFAULT_FEE_RATE = 0.0006
 DEFAULT_LEVERAGE = 3.0
-RISK_BUDGET_PCT = 0.015  # 1.5% capital risk per trade
+MAX_LEVERAGE = 20
+RISK_BUDGET_PCT = 0.01  # 1.0% capital risk per trade (or $1 if capital < $100)
 
 # Purged Walk-Forward Retraining Parameters (5m bars)
 # 288 bars/day -> 14 days = 4,032 bars train, 2 days = 576 bars test

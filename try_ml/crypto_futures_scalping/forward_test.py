@@ -7,6 +7,7 @@ import os
 import sys
 import json
 import time
+import math
 import argparse
 import numpy as np
 import pandas as pd
@@ -81,7 +82,7 @@ class ScalpingForwardTestEngine:
                 print(f"[CONFIG] Loaded optimized hyperparameters from {METRICS_FILE.name}")
         else:
             self.config = {
-                'entry_z': 2.0,
+                'entry_z': 1.3,
                 'exit_z': 0.0,
                 'min_hold_bars': 6,
                 'max_hold_bars': 24,
@@ -93,7 +94,7 @@ class ScalpingForwardTestEngine:
                 'z_window': 288,
                 'use_trend_filter': False,
                 'use_vol_filter': False,
-                'allow_short': False,
+                'allow_short': True,
                 'fee_rate': DEFAULT_FEE_RATE,
                 'leverage': DEFAULT_LEVERAGE,
                 'risk_pct': RISK_BUDGET_PCT
@@ -131,6 +132,54 @@ class ScalpingForwardTestEngine:
         self.state['last_update'] = datetime.now(timezone.utc).isoformat()
         with open(self.state_file, 'w') as f:
             json.dump(self.state, f, indent=4)
+
+    def calculate_dynamic_sizing(
+        self,
+        capital: float,
+        current_price: float,
+        sl_dist: float,
+        max_leverage_limit: int = 20,
+        margin_budget_ratio: float = 0.85
+    ) -> Tuple[float, int, float, float]:
+        """
+        Dynamically calculates position units and leverage:
+        1. Capital < $100: Risk exactly $1.00 at SL
+           Capital >= $100: Risk exactly 1% (0.01 * capital) at SL
+        2. Dynamic leverage is computed from target notional and available margin:
+           usable_margin = capital * margin_budget_ratio (15% safety buffer for fees/slippage)
+           required_leverage = ceil(target_notional / usable_margin)
+           dynamic_leverage = clamp(required_leverage, 1, max_leverage_limit)
+        3. Returns (units, dynamic_leverage, actual_notional, risk_amount)
+        """
+        if capital < 100.0:
+            risk_amount = 1.0
+        else:
+            risk_amount = capital * 0.01
+
+        safe_sl_dist = max(sl_dist, current_price * 0.001)
+        sl_pct = safe_sl_dist / current_price
+
+        # Target notional based on risk
+        target_notional = risk_amount / sl_pct
+
+        # Usable margin buffer (85% of capital to protect against fees and liquidation buffer)
+        usable_margin = max(1.0, capital * margin_budget_ratio)
+
+        # Dynamic leverage calculation
+        needed_leverage = math.ceil(target_notional / usable_margin)
+        dynamic_leverage = max(1, min(needed_leverage, max_leverage_limit))
+
+        # Max allowed notional for this dynamic leverage
+        max_allowed_notional = usable_margin * dynamic_leverage
+        actual_notional = min(target_notional, max_allowed_notional)
+
+        # Min notional requirement ($5.0 + 5% buffer)
+        rules = self.client.rules if (self.client and self.client.rules) else {"min_notional": 5.0}
+        min_notional = rules.get("min_notional", 5.0) * 1.05
+        actual_notional = max(actual_notional, min_notional)
+
+        units = actual_notional / current_price
+        return units, dynamic_leverage, actual_notional, risk_amount
 
     def train_latest_model(self):
         """Trains LightGBM model on the most recent 14-day 5m data."""
@@ -173,8 +222,9 @@ class ScalpingForwardTestEngine:
         """
         Executes one evaluation step of the live scalping risk state machine.
         """
-        if self.model is None:
+        if self.model is None or (time.time() - getattr(self, '_last_model_train_time', 0)) > 900:
             self.train_latest_model()
+            self._last_model_train_time = time.time()
             
         current_price = live_price if live_price is not None else self.latest_close
         atr = self.latest_atr
@@ -182,6 +232,46 @@ class ScalpingForwardTestEngine:
         z = self.last_z
         vol_ratio = self.latest_vol_ratio
         
+        # Auto-Sync Live Binance Balance & Check External On-Exchange Fills
+        if self.use_testnet_api and self.client and self.client.is_connected:
+            live_bal = self.client.get_usdt_balance()
+            if live_bal > 0:
+                self.state['capital'] = live_bal
+                
+            if self.state['curr_pos'] != 0.0:
+                live_pos = self.client.get_current_position()
+                if live_pos.get('side') == 'FLAT' or live_pos.get('contracts', 0.0) <= 0.0:
+                    print(f"\n⚡ [ON-EXCHANGE FILLED] Active scalping position was closed on Binance (filled by TP/SL bracket order).")
+                    gross_pnl = (current_price - self.state['entry_price']) * self.state['curr_units'] * self.state['curr_pos']
+                    log_entry = {
+                        'exit_time': datetime.now(timezone.utc).isoformat(),
+                        'side': 'LONG' if self.state['curr_pos'] == 1.0 else 'SHORT',
+                        'entry_price': self.state['entry_price'],
+                        'exit_price': current_price,
+                        'units': self.state['curr_units'],
+                        'holding_bars': self.state['holding_bars'],
+                        'gross_pnl': gross_pnl,
+                        'fee': 0.0,
+                        'net_pnl': gross_pnl,
+                        'pnl_pct': (gross_pnl / (self.state['curr_units'] * self.state['entry_price'] + 1e-9)) * 100.0,
+                        'exit_reason': 'ON_EXCHANGE_BRACKET_FILL',
+                        'equity_after': self.state['capital']
+                    }
+                    trades_df = pd.DataFrame([log_entry])
+                    if self.trades_file.exists():
+                        trades_df.to_csv(self.trades_file, mode='a', header=False, index=False)
+                    else:
+                        trades_df.to_csv(self.trades_file, mode='w', header=True, index=False)
+                        
+                    self.state['curr_pos'] = 0.0
+                    self.state['curr_units'] = 0.0
+                    self.state['entry_price'] = 0.0
+                    self.state['sl_price'] = 0.0
+                    self.state['tp_price'] = 0.0
+                    self.state['holding_bars'] = 0
+                    self.state['total_trades'] += 1
+                    self.save_state()
+                    
         curr_pos = self.state['curr_pos']
         curr_units = self.state['curr_units']
         entry_price = self.state['entry_price']
@@ -215,7 +305,7 @@ class ScalpingForwardTestEngine:
             tp_atr_mult = self.config.get('tp_atr_mult')
             min_hold_bars = self.config.get('min_hold_bars', 6)
             max_hold_bars = self.config.get('max_hold_bars', 24)
-            entry_z = self.config.get('entry_z', 2.0)
+            entry_z = self.config.get('entry_z', 1.3)
             exit_z = self.config.get('exit_z', 0.0)
             
             if curr_pos == 1.0: # LONG
@@ -378,37 +468,48 @@ class ScalpingForwardTestEngine:
                     sl_price = current_price + sl_dist
                     tp_price = current_price - (tp_atr_mult * atr) if tp_atr_mult else 0.0
                     
-                risk_pct = self.config.get('risk_pct', RISK_BUDGET_PCT)
-                leverage = self.config.get('leverage', DEFAULT_LEVERAGE)
                 capital = self.state['capital']
                 
-                risk_amount = capital * risk_pct
-                sl_pct = sl_dist / current_price
-                target_notional = risk_amount / (sl_pct + 1e-9)
-                max_notional = capital * leverage
-                actual_notional = min(target_notional, max_notional)
-                units = actual_notional / current_price
+                # Dynamic Position Sizing & Leverage:
+                # 1. Capital < $100 -> Risk exactly $1.00 on SL
+                #    Capital >= $100 -> Risk exactly 1% (0.01 * capital) on SL
+                # 2. Leverage dynamically adjusts to SL percentage and available margin
+                max_lev = int(self.config.get('max_leverage', 20))
+                units, dynamic_leverage, actual_notional, risk_amount = self.calculate_dynamic_sizing(
+                    capital=capital,
+                    current_price=current_price,
+                    sl_dist=sl_dist,
+                    max_leverage_limit=max_lev
+                )
                 
                 # Execute live testnet bracket order (Market Entry + On-Exchange TP + On-Exchange SL)
+                order_success = True
                 if self.use_testnet_api and self.client and self.client.is_connected:
                     order_side = 'BUY' if side == 1.0 else 'SELL'
-                    self.client.place_bracket_order(order_side, units, tp_price=tp_price, sl_price=sl_price)
+                    order_res = self.client.place_bracket_order(
+                        order_side, units, tp_price=tp_price, sl_price=sl_price, leverage=dynamic_leverage
+                    )
+                    if order_res.get('status') != 'SUCCESS':
+                        print(f"❌ [ORDER REJECTED] Binance order failed: {order_res.get('status')} ({order_res.get('msg', '')}). Trade NOT opened.")
+                        order_success = False
+
+                if order_success:
+                    fee = actual_notional * self.config.get('fee_rate', DEFAULT_FEE_RATE)
+                    self.state['capital'] -= fee
+                    self.state['total_fees_paid'] += fee
                     
-                fee = actual_notional * self.config.get('fee_rate', DEFAULT_FEE_RATE)
-                self.state['capital'] -= fee
-                self.state['total_fees_paid'] += fee
-                
-                self.state['curr_pos'] = side
-                self.state['curr_units'] = units
-                self.state['entry_price'] = current_price
-                self.state['sl_price'] = sl_price
-                self.state['tp_price'] = tp_price
-                self.state['highest_price'] = current_price
-                self.state['lowest_price'] = current_price
-                self.state['holding_bars'] = 0
-                self.save_state()
-                
-                print(f"[TRADE OPENED] {action} {units:.2f} SOL @ ${current_price:.2f} | SL: ${sl_price:.2f} | TP: ${tp_price:.2f} | Risk: ${risk_amount:.2f}")
+                    self.state['curr_pos'] = side
+                    self.state['curr_units'] = units
+                    self.state['entry_price'] = current_price
+                    self.state['sl_price'] = sl_price
+                    self.state['tp_price'] = tp_price
+                    self.state['highest_price'] = current_price
+                    self.state['lowest_price'] = current_price
+                    self.state['holding_bars'] = 0
+                    self.save_state()
+                    
+                    sl_pct_val = (sl_dist / current_price) * 100.0
+                    print(f"🟢 [TRADE OPENED] {action} {units:.2f} SOL @ ${current_price:.2f} | Lev: {dynamic_leverage}x | SL: ${sl_price:.2f} (-{sl_pct_val:.2f}%) | TP: ${tp_price:.2f} | Risk: ${risk_amount:.2f}")
                 
         # Mark to market equity
         curr_pos = self.state['curr_pos']

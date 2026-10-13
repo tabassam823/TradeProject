@@ -7,12 +7,14 @@ import os
 import sys
 import json
 import time
+import math
 import argparse
 import asyncio
 import aiohttp
 import websockets
 import numpy as np
 import pandas as pd
+from typing import Tuple, Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
@@ -126,6 +128,54 @@ class ForwardTestEngine:
         with open(self.state_file, 'w') as f:
             json.dump(self.state, f, indent=4)
 
+    def calculate_dynamic_sizing(
+        self,
+        capital: float,
+        current_price: float,
+        sl_dist: float,
+        max_leverage_limit: int = 20,
+        margin_budget_ratio: float = 0.85
+    ) -> Tuple[float, int, float, float]:
+        """
+        Dynamically calculates position units and leverage:
+        1. Capital < $100: Risk exactly $1.00 at SL
+           Capital >= $100: Risk exactly 1% (0.01 * capital) at SL
+        2. Dynamic leverage is computed from target notional and available margin:
+           usable_margin = capital * margin_budget_ratio (15% safety buffer for fees/slippage)
+           required_leverage = ceil(target_notional / usable_margin)
+           dynamic_leverage = clamp(required_leverage, 1, max_leverage_limit)
+        3. Returns (units, dynamic_leverage, actual_notional, risk_amount)
+        """
+        if capital < 100.0:
+            risk_amount = 1.0
+        else:
+            risk_amount = capital * 0.01
+
+        safe_sl_dist = max(sl_dist, current_price * 0.001)
+        sl_pct = safe_sl_dist / current_price
+
+        # Target notional based on risk
+        target_notional = risk_amount / sl_pct
+
+        # Usable margin buffer (85% of capital to protect against fees and liquidation buffer)
+        usable_margin = max(1.0, capital * margin_budget_ratio)
+
+        # Dynamic leverage calculation
+        needed_leverage = math.ceil(target_notional / usable_margin)
+        dynamic_leverage = max(1, min(needed_leverage, max_leverage_limit))
+
+        # Max allowed notional for this dynamic leverage
+        max_allowed_notional = usable_margin * dynamic_leverage
+        actual_notional = min(target_notional, max_allowed_notional)
+
+        # Min notional requirement ($5.0 + 5% buffer)
+        rules = self.client.rules if (self.client and self.client.rules) else {"min_notional": 5.0}
+        min_notional = rules.get("min_notional", 5.0) * 1.05
+        actual_notional = max(actual_notional, min_notional)
+
+        units = actual_notional / current_price
+        return units, dynamic_leverage, actual_notional, risk_amount
+
     def train_latest_model(self):
         """Trains LightGBM model on the most recent 60-day window."""
         print("[MODEL] Retraining LightGBM on latest market features...")
@@ -188,6 +238,41 @@ class ForwardTestEngine:
         tp_price = self.state['tp_price']
         capital = self.state['capital']
         holding_bars = self.state['holding_hours']
+
+        # 0. Live Binance Wallet Balance & Position Auto-Sync
+        if self.use_testnet_api and self.client and self.client.is_connected:
+            live_bal = self.client.get_usdt_balance()
+            if live_bal > 0:
+                self.state['capital'] = live_bal
+                capital = live_bal
+                
+            # Check if active position was closed on Binance directly by on-exchange TP/SL
+            if curr_pos != 0.0:
+                live_pos = self.client.get_current_position()
+                if live_pos.get('side') == 'FLAT' or live_pos.get('contracts', 0.0) <= 0.0:
+                    print(f"\n⚡ [ON-EXCHANGE FILLED] Active position was closed on Binance (filled by TP/SL bracket order).")
+                    gross_pnl = (current_price - entry_price) * curr_units * curr_pos
+                    self._log_trade({
+                        'timestamp': datetime.now(timezone.utc).isoformat(),
+                        'side': 'LONG' if curr_pos == 1.0 else 'SHORT',
+                        'entry_price': entry_price,
+                        'exit_price': current_price,
+                        'units': curr_units,
+                        'net_pnl': gross_pnl,
+                        'reason': 'ON_EXCHANGE_BRACKET_FILL',
+                        'holding_hours': holding_bars
+                    })
+                    self.state['curr_pos'] = 0.0
+                    self.state['curr_units'] = 0.0
+                    self.state['entry_price'] = 0.0
+                    self.state['sl_price'] = 0.0
+                    self.state['tp_price'] = 0.0
+                    self.state['holding_hours'] = 0
+                    self.state['total_trades'] += 1
+                    self.save_state()
+                    curr_pos = 0.0
+                    curr_units = 0.0
+                    holding_bars = 0
         
         print("\n" + "=" * 65)
         print(f"📡 FORWARD TEST CYCLE: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
@@ -288,67 +373,81 @@ class ForwardTestEngine:
                 
         # 2. Evaluate Entry if Flat
         if curr_pos == 0.0:
-            risk_dollar = max(1.0, cfg['risk_pct'] * capital)
             sl_dist = max(cfg['sl_atr_mult'] * atr, current_price * 0.005)
-            max_units = (capital * cfg['max_leverage']) / current_price
-            target_units = min(risk_dollar / sl_dist, max_units)
+            max_lev = int(cfg.get('max_leverage', 20))
+            units, dynamic_leverage, actual_notional, risk_amount = self.calculate_dynamic_sizing(
+                capital=capital,
+                current_price=current_price,
+                sl_dist=sl_dist,
+                max_leverage_limit=max_lev
+            )
             
             sma_long_ok = (current_price > sma) if cfg['use_sma_filter'] else True
             sma_short_ok = (current_price < sma) if cfg['use_sma_filter'] else True
             
             if z > cfg['entry_z'] and sma_long_ok:
-                curr_pos = 1.0
-                curr_units = target_units
-                entry_price = current_price
-                sl_price = entry_price - sl_dist
-                tp_price = entry_price + (cfg['tp_atr_mult'] * atr) if cfg.get('tp_atr_mult') else 0.0
-                highest_price = entry_price
-                entry_fee = entry_price * curr_units * fee_rate
-                capital -= entry_fee
+                sl_price = current_price - sl_dist
+                tp_price = current_price + (cfg['tp_atr_mult'] * atr) if cfg.get('tp_atr_mult') else 0.0
                 
-                self.state['curr_pos'] = 1.0
-                self.state['curr_units'] = curr_units
-                self.state['entry_price'] = entry_price
-                self.state['sl_price'] = sl_price
-                self.state['tp_price'] = tp_price
-                self.state['highest_price'] = entry_price
-                self.state['capital'] = capital
-                self.state['total_fees_paid'] += entry_fee
-                self.state['holding_hours'] = 0
-                
-                print(f"🟢 [NEW ORDER] LONG ENTERED at ${entry_price:,.2f}")
-                print(f"   Units: {curr_units:.4f} | Size: ${entry_price * curr_units:,.2f} | SL: ${sl_price:,.2f} | TP: ${tp_price:,.2f} | Fee: ${entry_fee:.2f}")
-                
-                # Execute live testnet bracket order (Market + TP + SL on-exchange)
+                order_success = True
                 if self.use_testnet_api and self.client and self.client.is_connected:
-                    self.client.place_bracket_order('BUY', curr_units, tp_price=tp_price, sl_price=sl_price)
+                    order_res = self.client.place_bracket_order(
+                        'BUY', units, tp_price=tp_price, sl_price=sl_price, leverage=dynamic_leverage
+                    )
+                    if order_res.get('status') != 'SUCCESS':
+                        print(f"❌ [ORDER REJECTED] Binance order failed: {order_res.get('status')} ({order_res.get('msg', '')}). Trade NOT opened.")
+                        order_success = False
+
+                if order_success:
+                    entry_fee = actual_notional * fee_rate
+                    capital -= entry_fee
+                    
+                    self.state['curr_pos'] = 1.0
+                    self.state['curr_units'] = units
+                    self.state['entry_price'] = current_price
+                    self.state['sl_price'] = sl_price
+                    self.state['tp_price'] = tp_price
+                    self.state['highest_price'] = current_price
+                    self.state['capital'] = capital
+                    self.state['total_fees_paid'] += entry_fee
+                    self.state['holding_hours'] = 0
+                    self.save_state()
+                    
+                    sl_pct_val = (sl_dist / current_price) * 100.0
+                    print(f"🟢 [NEW ORDER] LONG ENTERED at ${current_price:,.2f}")
+                    print(f"   Units: {units:.4f} | Size: ${actual_notional:,.2f} | Lev: {dynamic_leverage}x | SL: ${sl_price:,.2f} (-{sl_pct_val:.2f}%) | TP: ${tp_price:,.2f} | Risk: ${risk_amount:.2f}")
                 
             elif cfg['allow_short'] and z < -cfg['entry_z'] and sma_short_ok:
-                curr_pos = -1.0
-                curr_units = target_units
-                entry_price = current_price
-                sl_price = entry_price + sl_dist
-                tp_price = entry_price - (cfg['tp_atr_mult'] * atr) if cfg.get('tp_atr_mult') else 0.0
-                lowest_price = entry_price
-                entry_fee = entry_price * curr_units * fee_rate
-                capital -= entry_fee
+                sl_price = current_price + sl_dist
+                tp_price = current_price - (cfg['tp_atr_mult'] * atr) if cfg.get('tp_atr_mult') else 0.0
                 
-                self.state['curr_pos'] = -1.0
-                self.state['curr_units'] = curr_units
-                self.state['entry_price'] = entry_price
-                self.state['sl_price'] = sl_price
-                self.state['tp_price'] = tp_price
-                self.state['lowest_price'] = entry_price
-                self.state['capital'] = capital
-                self.state['total_fees_paid'] += entry_fee
-                self.state['holding_hours'] = 0
-                
-                print(f"🔴 [NEW ORDER] SHORT ENTERED at ${entry_price:,.2f}")
-                print(f"   Units: {curr_units:.4f} | Size: ${entry_price * curr_units:,.2f} | SL: ${sl_price:,.2f} | TP: ${tp_price:,.2f} | Fee: ${entry_fee:.2f}")
-                
-                # Execute live testnet bracket order (Market + TP + SL on-exchange)
+                order_success = True
                 if self.use_testnet_api and self.client and self.client.is_connected:
-                    self.client.place_bracket_order('SELL', curr_units, tp_price=tp_price, sl_price=sl_price)
+                    order_res = self.client.place_bracket_order(
+                        'SELL', units, tp_price=tp_price, sl_price=sl_price, leverage=dynamic_leverage
+                    )
+                    if order_res.get('status') != 'SUCCESS':
+                        print(f"❌ [ORDER REJECTED] Binance order failed: {order_res.get('status')} ({order_res.get('msg', '')}). Trade NOT opened.")
+                        order_success = False
+
+                if order_success:
+                    entry_fee = actual_notional * fee_rate
+                    capital -= entry_fee
+                    
+                    self.state['curr_pos'] = -1.0
+                    self.state['curr_units'] = units
+                    self.state['entry_price'] = current_price
+                    self.state['sl_price'] = sl_price
+                    self.state['tp_price'] = tp_price
+                    self.state['lowest_price'] = current_price
+                    self.state['capital'] = capital
+                    self.state['total_fees_paid'] += entry_fee
+                    self.state['holding_hours'] = 0
+                    self.save_state()
+                    
+                    sl_pct_val = (sl_dist / current_price) * 100.0
+                    print(f"🔴 [NEW ORDER] SHORT ENTERED at ${current_price:,.2f}")
+                    print(f"   Units: {units:.4f} | Size: ${actual_notional:,.2f} | Lev: {dynamic_leverage}x | SL: ${sl_price:,.2f} (-{sl_pct_val:.2f}%) | TP: ${tp_price:,.2f} | Risk: ${risk_amount:.2f}")
             else:
                 print(f"⚪ [POSITION FLAT] No trigger. Waiting for high-conviction Z-signal.")
                 

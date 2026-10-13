@@ -24,8 +24,8 @@ BENCHMARK_TICKER = "SOL-USD"
 # Exchange Simulation Parameters
 DEFAULT_INITIAL_CAPITAL = 1000.0
 DEFAULT_TAKER_FEE_RATE = 0.00075  # 0.075% Binance/Bybit VIP0 Taker Fee
-DEFAULT_MAX_LEVERAGE = 2.0
-RISK_BUDGET_PCT = 0.02           # 2% capital risk per trade
+DEFAULT_MAX_LEVERAGE = 20
+RISK_BUDGET_PCT = 0.01           # 1% capital risk per trade (or $1 if capital < $100)
 
 # Model Architecture Parameters
 PURGED_TRAIN_DAYS = 60           # 60 days rolling train window
